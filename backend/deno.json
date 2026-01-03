@@ -1,0 +1,12 @@
+{
+  "name": "@totoeverysecond/backend",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read --allow-write --allow-env --watch main.ts",
+    "start": "deno run --allow-net --allow-read --allow-write --allow-env main.ts"
+  },
+  "imports": {
+    "zod": "npm:zod@^3.23.8"
+  }
+}
