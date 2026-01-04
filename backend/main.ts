@@ -47,6 +47,13 @@ async function saveLotteryResult<T extends ReturnType<typeof lottery>>(
 
 const lotteries = [toto];
 
+// CORS headers for cross-origin requests
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 const routes = new Map<
   URLPattern,
   (pattern: URLPatternResult, request: Request) => Promise<Response> | Response
@@ -102,6 +109,7 @@ routes.set(new URLPattern({ pathname: "/wins" }), () => {
     status: 200,
     headers: {
       "Content-Type": "application/json",
+      ...corsHeaders,
     },
   });
 });
@@ -133,6 +141,7 @@ routes.set(new URLPattern({ pathname: "/history/:type" }), (pattern, req) => {
       status: 200,
       headers: {
         "Content-Type": "application/json",
+        ...corsHeaders,
       },
     });
   }
@@ -157,6 +166,7 @@ routes.set(new URLPattern({ pathname: "/history/:type" }), (pattern, req) => {
     status: 200,
     headers: {
       "Content-Type": "application/json",
+      ...corsHeaders,
     },
   });
 });
@@ -190,7 +200,14 @@ if (import.meta.main) {
     });
   });
 
-  Deno.serve({ port: 3350 }, (req) => {
+  const port = Number(Deno.env.get("PORT")) || 3350;
+
+  Deno.serve({ port }, (req) => {
+    // Handle CORS preflight requests
+    if (req.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
     for (const [pattern, handler] of routes.entries()) {
       const patternResult = pattern.exec(req.url);
       if (patternResult) {

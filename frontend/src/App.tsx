@@ -18,31 +18,36 @@ function App() {
   const [wins, setWins] = useState(0);
   const [totalPrizes, setTotalPrizes] = useState(0);
 
-  const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
+  const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = backendUrl
+    ? `${wsProtocol}//${backendUrl.replace(/^https?:\/\//, '')}/ws`
+    : `${wsProtocol}//${window.location.host}/ws`;
+  const apiBase = backendUrl || '';
   const socket = useWebSocket(wsUrl);
 
   // Fetch wins count and total prizes
   useEffect(() => {
-    fetch("/wins")
+    fetch(`${apiBase}/wins`)
       .then((res) => res.json())
       .then((data) => {
         setWins(data.wins);
         setTotalPrizes(data.totalPrizes);
       })
       .catch(console.error);
-  }, []);
+  }, [apiBase]);
 
   // Fetch history
   const fetchHistory = useCallback(async (pageNum: number) => {
     try {
-      const res = await fetch(`/history/toto?page=${pageNum}`);
+      const res = await fetch(`${apiBase}/history/toto?page=${pageNum}`);
       const data = await res.json();
       setHistory(data.data || []);
       setTotalResults(data.total || 0);
     } catch (error) {
       console.error("Failed to fetch history:", error);
     }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     fetchHistory(page);
