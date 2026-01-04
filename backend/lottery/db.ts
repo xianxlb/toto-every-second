@@ -126,4 +126,23 @@ const drawSchema = <T extends ZodObject>(schema: T) =>
     timestamp: z.coerce.date(),
   });
 
-export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, drawSchema };
+// Try to acquire a time-based lock (returns true if acquired)
+async function tryAcquireLock(lockName: string, durationMs: number): Promise<boolean> {
+  const now = Date.now();
+  const result = await kv.get<number>(["lock", lockName]);
+
+  // If lock exists and hasn't expired, someone else has it
+  if (result.value && now - result.value < durationMs) {
+    return false;
+  }
+
+  // Try to acquire atomically
+  const res = await kv.atomic()
+    .check(result)
+    .set(["lock", lockName], now)
+    .commit();
+
+  return res.ok;
+}
+
+export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireLock, drawSchema };
