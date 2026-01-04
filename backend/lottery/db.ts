@@ -84,13 +84,21 @@ async function getCountByScore(score: number): Promise<number> {
   return count;
 }
 
-// Clear all data
+// Clear all data and reset counters
 async function clearAllData(): Promise<void> {
+  // First, set a maintenance flag to pause draws
+  await kv.set(["maintenance"], true);
+
+  // Wait a moment for ongoing operations to complete
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Collect all keys
   const keys: Deno.KvKey[] = [];
   const iter = kv.list({ prefix: [] });
   for await (const entry of iter) {
     keys.push(entry.key);
   }
+
   // Delete in batches of 10
   for (let i = 0; i < keys.length; i += 10) {
     const batch = keys.slice(i, i + 10);
@@ -100,6 +108,19 @@ async function clearAllData(): Promise<void> {
     }
     await op.commit();
   }
+
+  // Explicitly reset counter and last draw second to ensure clean state
+  await kv.set(["counter", "draw"], 0);
+  await kv.set(["last_draw_second"], 0);
+
+  // Remove maintenance flag
+  await kv.delete(["maintenance"]);
+}
+
+// Check if in maintenance mode
+async function isInMaintenance(): Promise<boolean> {
+  const result = await kv.get<boolean>(["maintenance"]);
+  return result.value === true;
 }
 
 const parseJsonPreprocessor = (value: unknown, ctx: z.RefinementCtx) => {
@@ -145,4 +166,4 @@ async function tryAcquireSecondSlot(): Promise<boolean> {
   return res.ok;
 }
 
-export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireSecondSlot, drawSchema };
+export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireSecondSlot, isInMaintenance, drawSchema };

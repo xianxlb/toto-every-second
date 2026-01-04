@@ -1,6 +1,6 @@
 import z from "zod";
 import { lottery } from "./lottery/base.ts";
-import { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireSecondSlot, drawSchema } from "./lottery/db.ts";
+import { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireSecondSlot, isInMaintenance, drawSchema } from "./lottery/db.ts";
 import { toto } from "./lottery/toto.ts";
 
 const sleep = (ms: number) =>
@@ -170,6 +170,11 @@ routes.set(new URLPattern({ pathname: "/history/:type" }), async (pattern, req) 
 
 if (import.meta.main) {
   everySecond(async () => {
+    // Skip if in maintenance mode (during clear operation)
+    if (await isInMaintenance()) {
+      return;
+    }
+
     // Try to acquire slot for this second - only one draw per second globally
     const acquired = await tryAcquireSecondSlot();
     if (!acquired) {
