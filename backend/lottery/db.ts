@@ -126,23 +126,23 @@ const drawSchema = <T extends ZodObject>(schema: T) =>
     timestamp: z.coerce.date(),
   });
 
-// Try to acquire a time-based lock (returns true if acquired)
-async function tryAcquireLock(lockName: string, durationMs: number): Promise<boolean> {
-  const now = Date.now();
-  const result = await kv.get<number>(["lock", lockName]);
+// Try to acquire a slot for the current second (only one draw per second)
+async function tryAcquireSecondSlot(): Promise<boolean> {
+  const currentSecond = Math.floor(Date.now() / 1000);
+  const result = await kv.get<number>(["last_draw_second"]);
 
-  // If lock exists and hasn't expired, someone else has it
-  if (result.value && now - result.value < durationMs) {
+  // If we already drew for this second, skip
+  if (result.value === currentSecond) {
     return false;
   }
 
-  // Try to acquire atomically
+  // Try to claim this second atomically
   const res = await kv.atomic()
     .check(result)
-    .set(["lock", lockName], now)
+    .set(["last_draw_second"], currentSecond)
     .commit();
 
   return res.ok;
 }
 
-export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireLock, drawSchema };
+export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireSecondSlot, drawSchema };

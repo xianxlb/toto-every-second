@@ -1,6 +1,6 @@
 import z from "zod";
 import { lottery } from "./lottery/base.ts";
-import { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireLock, drawSchema } from "./lottery/db.ts";
+import { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, tryAcquireSecondSlot, drawSchema } from "./lottery/db.ts";
 import { toto } from "./lottery/toto.ts";
 
 const sleep = (ms: number) =>
@@ -170,10 +170,10 @@ routes.set(new URLPattern({ pathname: "/history/:type" }), async (pattern, req) 
 
 if (import.meta.main) {
   everySecond(async () => {
-    // Try to acquire lock - only one instance should draw per second
-    const acquired = await tryAcquireLock("draw", 900);
+    // Try to acquire slot for this second - only one draw per second globally
+    const acquired = await tryAcquireSecondSlot();
     if (!acquired) {
-      return; // Another instance is handling this second
+      return; // Another instance already drew for this second
     }
 
     const now = Date.now();
