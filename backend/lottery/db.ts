@@ -77,9 +77,19 @@ async function getCountByScore(score: number): Promise<number> {
 
 // Clear all data
 async function clearAllData(): Promise<void> {
+  const keys: Deno.KvKey[] = [];
   const iter = kv.list({ prefix: [] });
   for await (const entry of iter) {
-    await kv.delete(entry.key);
+    keys.push(entry.key);
+  }
+  // Delete in batches of 10
+  for (let i = 0; i < keys.length; i += 10) {
+    const batch = keys.slice(i, i + 10);
+    const op = kv.atomic();
+    for (const key of batch) {
+      op.delete(key);
+    }
+    await op.commit();
   }
 }
 
