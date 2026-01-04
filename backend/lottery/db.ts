@@ -12,12 +12,21 @@ interface DrawRecord {
   timestamp: string;
 }
 
-// Get next ID
+// Get next ID with atomic increment
 async function getNextId(): Promise<number> {
-  const result = await kv.get<number>(["counter", "draw"]);
-  const nextId = (result.value || 0) + 1;
-  await kv.set(["counter", "draw"], nextId);
-  return nextId;
+  while (true) {
+    const result = await kv.get<number>(["counter", "draw"]);
+    const currentId = result.value || 0;
+    const nextId = currentId + 1;
+    const res = await kv.atomic()
+      .check(result)
+      .set(["counter", "draw"], nextId)
+      .commit();
+    if (res.ok) {
+      return nextId;
+    }
+    // Retry if another process updated the counter
+  }
 }
 
 // Save a draw
