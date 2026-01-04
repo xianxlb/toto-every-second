@@ -44,10 +44,14 @@ function App() {
       const data = await res.json();
       setHistory(data.data || []);
       setTotalResults(data.total || 0);
+      // Set the latest draw immediately on first load
+      if (pageNum === 0 && data.data?.length > 0 && !totoResult) {
+        setTotoResult(data.data[0]);
+      }
     } catch (error) {
       console.error("Failed to fetch history:", error);
     }
-  }, [apiBase]);
+  }, [apiBase, totoResult]);
 
   useEffect(() => {
     fetchHistory(page);
