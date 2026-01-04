@@ -1,6 +1,6 @@
 import z from "zod";
 import { lottery } from "./lottery/base.ts";
-import { db, drawSchema } from "./lottery/db.ts";
+import { saveDraw, getDrawsByType, getTotalByType, getCountByScore, drawSchema } from "./lottery/db.ts";
 import { toto } from "./lottery/toto.ts";
 
 const sleep = (ms: number) =>
@@ -24,25 +24,20 @@ async function everySecond(cb: () => Promise<void>) {
 }
 
 async function saveLotteryResult<T extends ReturnType<typeof lottery>>(
-  lottery: T,
+  lotteryInstance: T,
 ) {
-  const draw = await lottery.draw();
-  const guess = await lottery.draw();
+  const draw = await lotteryInstance.draw();
+  const guess = await lotteryInstance.draw();
+  const score = lotteryInstance.score(draw, guess);
 
-  const result = db
-    .prepare(
-      `INSERT INTO draw (lottery_type, draw, guesses, score)
-    VALUES (?, ?, ?, ?)
-    RETURNING *;`,
-    )
-    .get(
-      lottery.type,
-      JSON.stringify(draw),
-      JSON.stringify([guess]),
-      lottery.score(draw, guess),
-    );
+  const result = await saveDraw({
+    lottery_type: lotteryInstance.type,
+    draw: draw,
+    guesses: [guess],
+    score: score,
+  });
 
-  return drawSchema(lottery.schema).parse(result);
+  return drawSchema(lotteryInstance.schema).parse(result);
 }
 
 const lotteries = [toto];
@@ -92,13 +87,13 @@ const prizeAmounts: Record<number, number> = {
   0.1: 10,        // Group 7: 3 numbers (fixed)
 };
 
-routes.set(new URLPattern({ pathname: "/wins" }), () => {
+routes.set(new URLPattern({ pathname: "/wins" }), async () => {
   const scores = [1.0, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1];
   let totalPrizes = 0;
   let totalWins = 0;
 
   for (const score of scores) {
-    const count = db.prepare(`SELECT COUNT(*) as count FROM draw WHERE score = ?`).get(score)?.["count"] || 0;
+    const count = await getCountByScore(score);
     totalWins += count;
     totalPrizes += count * (prizeAmounts[score] || 0);
   }
@@ -114,16 +109,16 @@ routes.set(new URLPattern({ pathname: "/wins" }), () => {
   });
 });
 
-routes.set(new URLPattern({ pathname: "/history/:type" }), (pattern, req) => {
+routes.set(new URLPattern({ pathname: "/history/:type" }), async (pattern, req) => {
   const PAGINATION_ITEMS = 24;
 
   const type = pattern.pathname.groups.type;
   const url = new URL(req.url);
   const params = url.searchParams;
 
-  const lottery = lotteries.find((l) => l.type === type);
+  const lotteryInstance = lotteries.find((l) => l.type === type);
 
-  if (!lottery || !type) {
+  if (!lotteryInstance || !type) {
     return new Response(null, { status: 400 });
   }
 
@@ -131,9 +126,7 @@ routes.set(new URLPattern({ pathname: "/history/:type" }), (pattern, req) => {
 
   const page = isNaN(pageParam) ? 0 : pageParam;
 
-  const total = db
-    .prepare(`SELECT COUNT(*) as count FROM draw WHERE lottery_type = ?`)
-    .get(type)?.["count"];
+  const total = await getTotalByType(type);
 
   if (!total) {
     console.error("No results found");
@@ -146,16 +139,9 @@ routes.set(new URLPattern({ pathname: "/history/:type" }), (pattern, req) => {
     });
   }
 
-  const results = db
-    .prepare(
-      `SELECT * FROM draw
-     WHERE lottery_type = ?
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?;`,
-    )
-    .all(type, PAGINATION_ITEMS, PAGINATION_ITEMS * page);
+  const results = await getDrawsByType(type, PAGINATION_ITEMS, PAGINATION_ITEMS * page);
 
-  const parsed = z.array(drawSchema(lottery.schema)).parse(results);
+  const parsed = z.array(drawSchema(lotteryInstance.schema)).parse(results);
 
   const json = JSON.stringify({
     data: parsed,

@@ -1,24 +1,79 @@
-import { DatabaseSync } from "node:sqlite";
 import { z, ZodObject } from "zod";
 
-const dbPath = Deno.env.get("DATABASE_PATH") || "db.db";
-const db = new DatabaseSync(dbPath);
+// Use Deno KV for storage (works on Deno Deploy)
+const kv = await Deno.openKv();
 
-db.exec(
-  `
-  CREATE TABLE IF NOT EXISTS draw (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lottery_type TEXT,
-    draw TEXT,
-    guesses TEXT,
-    score FLOAT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+interface DrawRecord {
+  id: number;
+  lottery_type: string;
+  draw: unknown;
+  guesses: unknown;
+  score: number;
+  timestamp: string;
+}
 
-  CREATE INDEX IF NOT EXISTS idx_draw_type ON draw (lottery_type);
-  CREATE INDEX IF NOT EXISTS idx_score ON draw (score);
-  `,
-);
+// Get next ID
+async function getNextId(): Promise<number> {
+  const result = await kv.get<number>(["counter", "draw"]);
+  const nextId = (result.value || 0) + 1;
+  await kv.set(["counter", "draw"], nextId);
+  return nextId;
+}
+
+// Save a draw
+async function saveDraw(record: Omit<DrawRecord, "id" | "timestamp">): Promise<DrawRecord> {
+  const id = await getNextId();
+  const timestamp = new Date().toISOString();
+  const fullRecord: DrawRecord = { ...record, id, timestamp };
+
+  await kv.set(["draw", id], fullRecord);
+  await kv.set(["draw_by_type", record.lottery_type, id], fullRecord);
+
+  return fullRecord;
+}
+
+// Get draws by type with pagination
+async function getDrawsByType(type: string, limit: number, offset: number): Promise<DrawRecord[]> {
+  const draws: DrawRecord[] = [];
+  const iter = kv.list<DrawRecord>({ prefix: ["draw_by_type", type] }, { reverse: true });
+
+  let count = 0;
+  let skipped = 0;
+
+  for await (const entry of iter) {
+    if (skipped < offset) {
+      skipped++;
+      continue;
+    }
+    if (count >= limit) break;
+    draws.push(entry.value);
+    count++;
+  }
+
+  return draws;
+}
+
+// Get total count by type
+async function getTotalByType(type: string): Promise<number> {
+  let count = 0;
+  const iter = kv.list({ prefix: ["draw_by_type", type] });
+  for await (const _ of iter) {
+    count++;
+  }
+  return count;
+}
+
+// Get count by score
+async function getCountByScore(score: number): Promise<number> {
+  let count = 0;
+  const iter = kv.list<DrawRecord>({ prefix: ["draw"] });
+  for await (const entry of iter) {
+    if (entry.value && entry.value.score === score) {
+      count++;
+    }
+  }
+  return count;
+}
 
 const parseJsonPreprocessor = (value: unknown, ctx: z.RefinementCtx) => {
   if (typeof value === "string") {
@@ -31,7 +86,6 @@ const parseJsonPreprocessor = (value: unknown, ctx: z.RefinementCtx) => {
       });
     }
   }
-
   return value;
 };
 
@@ -45,4 +99,4 @@ const drawSchema = <T extends ZodObject>(schema: T) =>
     timestamp: z.coerce.date(),
   });
 
-export { db, drawSchema };
+export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, drawSchema };
