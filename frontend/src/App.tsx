@@ -15,7 +15,7 @@ function App() {
   const [totalResults, setTotalResults] = useState(0);
   const [page, setPage] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [wins, setWins] = useState(0);
+  const [, setWins] = useState(0);
   const [totalPrizes, setTotalPrizes] = useState(0);
 
   const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
