@@ -1,6 +1,6 @@
 import z from "zod";
 import { lottery } from "./lottery/base.ts";
-import { saveDraw, getDrawsByType, getTotalByType, getCountByScore, drawSchema } from "./lottery/db.ts";
+import { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, drawSchema } from "./lottery/db.ts";
 import { toto } from "./lottery/toto.ts";
 
 const sleep = (ms: number) =>
@@ -101,6 +101,17 @@ routes.set(new URLPattern({ pathname: "/wins" }), async () => {
   const json = JSON.stringify({ wins: totalWins, totalPrizes });
 
   return new Response(json, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      ...corsHeaders,
+    },
+  });
+});
+
+routes.set(new URLPattern({ pathname: "/clear" }), async () => {
+  await clearAllData();
+  return new Response(JSON.stringify({ success: true }), {
     status: 200,
     headers: {
       "Content-Type": "application/json",

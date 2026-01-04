@@ -75,6 +75,14 @@ async function getCountByScore(score: number): Promise<number> {
   return count;
 }
 
+// Clear all data
+async function clearAllData(): Promise<void> {
+  const iter = kv.list({ prefix: [] });
+  for await (const entry of iter) {
+    await kv.delete(entry.key);
+  }
+}
+
 const parseJsonPreprocessor = (value: unknown, ctx: z.RefinementCtx) => {
   if (typeof value === "string") {
     try {
@@ -99,4 +107,4 @@ const drawSchema = <T extends ZodObject>(schema: T) =>
     timestamp: z.coerce.date(),
   });
 
-export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, drawSchema };
+export { saveDraw, getDrawsByType, getTotalByType, getCountByScore, clearAllData, drawSchema };
