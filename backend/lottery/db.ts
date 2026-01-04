@@ -25,7 +25,19 @@ async function getNextId(): Promise<number> {
     if (res.ok) {
       return nextId;
     }
-    // Retry if another process updated the counter
+  }
+}
+
+// Increment a counter atomically
+async function incrementCounter(key: Deno.KvKey): Promise<void> {
+  while (true) {
+    const result = await kv.get<number>(key);
+    const current = result.value || 0;
+    const res = await kv.atomic()
+      .check(result)
+      .set(key, current + 1)
+      .commit();
+    if (res.ok) return;
   }
 }
 
@@ -35,13 +47,22 @@ async function saveDraw(record: Omit<DrawRecord, "id" | "timestamp">): Promise<D
   const timestamp = new Date().toISOString();
   const fullRecord: DrawRecord = { ...record, id, timestamp };
 
-  await kv.set(["draw", id], fullRecord);
-  await kv.set(["draw_by_type", record.lottery_type, id], fullRecord);
+  // Use a padded key for proper ordering (supports up to 999,999,999 draws)
+  const paddedId = id.toString().padStart(9, "0");
+
+  await kv.set(["draw", paddedId], fullRecord);
+  await kv.set(["draw_by_type", record.lottery_type, paddedId], fullRecord);
+
+  // Increment counters atomically
+  await incrementCounter(["count_by_type", record.lottery_type]);
+  if (record.score > 0) {
+    await incrementCounter(["count_by_score", record.score.toString()]);
+  }
 
   return fullRecord;
 }
 
-// Get draws by type with pagination
+// Get draws by type with pagination (optimized with proper key ordering)
 async function getDrawsByType(type: string, limit: number, offset: number): Promise<DrawRecord[]> {
   const draws: DrawRecord[] = [];
   const iter = kv.list<DrawRecord>({ prefix: ["draw_by_type", type] }, { reverse: true });
@@ -62,44 +83,29 @@ async function getDrawsByType(type: string, limit: number, offset: number): Prom
   return draws;
 }
 
-// Get total count by type
+// Get total count by type (O(1) using counter)
 async function getTotalByType(type: string): Promise<number> {
-  let count = 0;
-  const iter = kv.list({ prefix: ["draw_by_type", type] });
-  for await (const _ of iter) {
-    count++;
-  }
-  return count;
+  const result = await kv.get<number>(["count_by_type", type]);
+  return result.value || 0;
 }
 
-// Get count by score
+// Get count by score (O(1) using counter)
 async function getCountByScore(score: number): Promise<number> {
-  let count = 0;
-  const iter = kv.list<DrawRecord>({ prefix: ["draw"] });
-  for await (const entry of iter) {
-    if (entry.value && entry.value.score === score) {
-      count++;
-    }
-  }
-  return count;
+  const result = await kv.get<number>(["count_by_score", score.toString()]);
+  return result.value || 0;
 }
 
 // Clear all data and reset counters
 async function clearAllData(): Promise<void> {
-  // First, set a maintenance flag to pause draws
   await kv.set(["maintenance"], true);
-
-  // Wait a moment for ongoing operations to complete
   await new Promise(resolve => setTimeout(resolve, 2000));
 
-  // Collect all keys
   const keys: Deno.KvKey[] = [];
   const iter = kv.list({ prefix: [] });
   for await (const entry of iter) {
     keys.push(entry.key);
   }
 
-  // Delete in batches of 10
   for (let i = 0; i < keys.length; i += 10) {
     const batch = keys.slice(i, i + 10);
     const op = kv.atomic();
@@ -109,11 +115,8 @@ async function clearAllData(): Promise<void> {
     await op.commit();
   }
 
-  // Explicitly reset counter and last draw second to ensure clean state
   await kv.set(["counter", "draw"], 0);
   await kv.set(["last_draw_second"], 0);
-
-  // Remove maintenance flag
   await kv.delete(["maintenance"]);
 }
 
@@ -147,17 +150,15 @@ const drawSchema = <T extends ZodObject>(schema: T) =>
     timestamp: z.coerce.date(),
   });
 
-// Try to acquire a slot for the current second (only one draw per second)
+// Try to acquire a slot for the current second
 async function tryAcquireSecondSlot(): Promise<boolean> {
   const currentSecond = Math.floor(Date.now() / 1000);
   const result = await kv.get<number>(["last_draw_second"]);
 
-  // If we already drew for this second, skip
   if (result.value === currentSecond) {
     return false;
   }
 
-  // Try to claim this second atomically
   const res = await kv.atomic()
     .check(result)
     .set(["last_draw_second"], currentSecond)
