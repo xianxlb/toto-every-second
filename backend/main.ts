@@ -168,6 +168,12 @@ routes.set(new URLPattern({ pathname: "/history/:type" }), async (pattern, req) 
   });
 });
 
+// Deno Cron to keep the instance alive on Deno Deploy
+// This runs every minute and ensures the everySecond loop keeps running
+Deno.cron("keep-alive", "* * * * *", () => {
+  console.log("Cron keep-alive tick");
+});
+
 if (import.meta.main) {
   everySecond(async () => {
     // Skip if in maintenance mode (during clear operation)
