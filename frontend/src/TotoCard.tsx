@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { TotoResult } from "./types";
+import type { TotoResult } from "./lottery";
 import Ball from "./Ball";
 
 interface TotoCardProps {

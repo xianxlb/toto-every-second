@@ -1,109 +1,68 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./App.css";
-import { useWebSocket } from "./useWebSocket";
-import type { TotoResult } from "./types";
+import {
+  generateResult,
+  getCurrentSecond,
+  prizeAmounts,
+  type TotoResult,
+} from "./lottery";
 import TotoCard from "./TotoCard";
 import HistoryTable from "./HistoryTable";
 import Pagination from "./Pagination";
 import AboutSection from "./AboutSection";
 
 const PAGINATION_ITEMS = 24;
+const MAX_HISTORY = 10000; // Keep last 10k draws in memory
 
 function App() {
-  const [totoResult, setTotoResult] = useState<TotoResult | null>(null);
+  const [currentResult, setCurrentResult] = useState<TotoResult | null>(null);
   const [history, setHistory] = useState<TotoResult[]>([]);
-  const [totalResults, setTotalResults] = useState(0);
   const [page, setPage] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [, setWins] = useState(0);
   const [totalPrizes, setTotalPrizes] = useState(0);
+  const [totalDraws, setTotalDraws] = useState(0);
+  const lastSecondRef = useRef<number>(0);
+  const isPausedRef = useRef(isPaused);
 
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = backendUrl
-    ? `${wsProtocol}//${backendUrl.replace(/^https?:\/\//, '')}/ws`
-    : `${wsProtocol}//${window.location.host}/ws`;
-  const apiBase = backendUrl || '';
-  const socket = useWebSocket(wsUrl);
-
-  // Fetch wins count and total prizes
+  // Keep ref in sync with state for interval callback
   useEffect(() => {
-    fetch(`${apiBase}/wins`)
-      .then((res) => res.json())
-      .then((data) => {
-        setWins(data.wins);
-        setTotalPrizes(data.totalPrizes);
-      })
-      .catch(console.error);
-  }, [apiBase]);
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
-  // Fetch history
-  const fetchHistory = useCallback(async (pageNum: number) => {
-    try {
-      const res = await fetch(`${apiBase}/history/toto?page=${pageNum}`);
-      const data = await res.json();
-      setHistory(data.data || []);
-      setTotalResults(data.total || 0);
-      // Set the latest draw immediately on first load
-      if (pageNum === 0 && data.data?.length > 0 && !totoResult) {
-        setTotoResult(data.data[0]);
-      }
-    } catch (error) {
-      console.error("Failed to fetch history:", error);
-    }
-  }, [apiBase, totoResult]);
-
+  // Main draw loop - runs every frame, checks if second changed
   useEffect(() => {
-    fetchHistory(page);
-  }, [page, fetchHistory]);
+    const tick = () => {
+      if (isPausedRef.current) return;
 
-  // Handle WebSocket messages
-  useEffect(() => {
-    if (!socket) return;
+      const currentSecond = getCurrentSecond();
+      if (currentSecond !== lastSecondRef.current) {
+        lastSecondRef.current = currentSecond;
 
-    const handleMessage = (event: MessageEvent) => {
-      if (isPaused) return;
+        const result = generateResult(currentSecond);
+        setCurrentResult(result);
+        setTotalDraws((prev) => prev + 1);
 
-      try {
-        const result = JSON.parse(event.data) as TotoResult;
-
-        // Prize amounts based on Singapore Pools TOTO structure
-        const prizeAmounts: Record<number, number> = {
-          1.0: 1000000,   // Group 1: Jackpot
-          0.85: 100000,   // Group 2: 5 + Additional
-          0.7: 50000,     // Group 3: 5 numbers
-          0.55: 2000,     // Group 4: 4 + Additional
-          0.4: 50,        // Group 5: 4 numbers
-          0.25: 25,       // Group 6: 3 + Additional
-          0.1: 10,        // Group 7: 3 numbers
-        };
-
-        if (result.lottery_type === "toto") {
-          setTotoResult(result);
-
-          if (result.score > 0) {
-            setWins((prev) => prev + 1);
-            setTotalPrizes((prev) => prev + (prizeAmounts[result.score] || 0));
-          }
-
-          if (page === 0) {
-            setHistory((prev) => {
-              const newHistory = [result, ...prev];
-              return newHistory.slice(0, PAGINATION_ITEMS);
-            });
-            setTotalResults((prev) => prev + 1);
-          }
+        if (result.score > 0) {
+          setTotalPrizes((prev) => prev + (prizeAmounts[result.score] || 0));
         }
-      } catch (error) {
-        console.error("Failed to parse WebSocket message:", error);
+
+        setHistory((prev) => {
+          const newHistory = [result, ...prev];
+          return newHistory.slice(0, MAX_HISTORY);
+        });
       }
     };
 
-    socket.addEventListener("message", handleMessage);
-    return () => socket.removeEventListener("message", handleMessage);
-  }, [socket, isPaused, page]);
+    // Initial tick
+    tick();
 
-  // Sync page with URL
+    // Run at 60fps to catch second changes instantly
+    const intervalId = setInterval(tick, 16);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // Sync page with URL on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlPage = parseInt(params.get("page") || "0");
@@ -123,7 +82,12 @@ function App() {
     window.history.pushState({}, "", url);
   };
 
-  const totalPages = Math.ceil(totalResults / PAGINATION_ITEMS);
+  // Paginate history
+  const paginatedHistory = history.slice(
+    page * PAGINATION_ITEMS,
+    (page + 1) * PAGINATION_ITEMS
+  );
+  const totalPages = Math.ceil(history.length / PAGINATION_ITEMS);
 
   return (
     <div className="container">
@@ -131,20 +95,23 @@ function App() {
         <h1>Toto Every Second</h1>
         <p className="tagline">Watch the Odds Fail in Real-Time</p>
         <p className="description">
-          A Singapore Toto simulator playing every second to show how unlikely winning really is.
+          A Singapore Toto simulator playing every second to show how unlikely
+          winning really is.
         </p>
         <div className="wins-counter">
           <span className="wins-label">Total Prizes Won:</span>
-          <span className="wins-number">S${totalPrizes.toLocaleString()}</span>
+          <span className="wins-number">
+            S${totalPrizes.toLocaleString()}
+          </span>
         </div>
         <div className="wins-counter">
           <span className="wins-label">Total Bet Spent:</span>
-          <span className="bet-number">S${totalResults.toLocaleString()}</span>
+          <span className="bet-number">S${totalDraws.toLocaleString()}</span>
         </div>
       </header>
 
       <div className="cards">
-        <TotoCard result={totoResult} />
+        <TotoCard result={currentResult} />
       </div>
 
       <section className="history-section">
@@ -152,19 +119,13 @@ function App() {
           <h2>Draw History</h2>
           <button
             className="pause-button"
-            onClick={() => {
-              if (isPaused) {
-                // Resuming - refresh history to get all missed draws
-                fetchHistory(page);
-              }
-              setIsPaused(!isPaused);
-            }}
+            onClick={() => setIsPaused(!isPaused)}
           >
             {isPaused ? "Resume" : "Pause"}
           </button>
         </div>
 
-        <HistoryTable history={history} />
+        <HistoryTable history={paginatedHistory} />
 
         <Pagination
           currentPage={page}
