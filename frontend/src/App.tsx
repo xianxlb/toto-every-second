@@ -22,6 +22,7 @@ function App() {
   const [totalPrizes, setTotalPrizes] = useState(0);
   const [totalDraws, setTotalDraws] = useState(0);
   const lastSecondRef = useRef<number>(0);
+  const drawNumberRef = useRef<number>(0);
   const isPausedRef = useRef(isPaused);
 
   // Keep ref in sync with state for interval callback
@@ -37,8 +38,9 @@ function App() {
       const currentSecond = getCurrentSecond();
       if (currentSecond !== lastSecondRef.current) {
         lastSecondRef.current = currentSecond;
+        drawNumberRef.current += 1;
 
-        const result = generateResult(currentSecond);
+        const result = generateResult(currentSecond, drawNumberRef.current);
         setCurrentResult(result);
         setTotalDraws((prev) => prev + 1);
 

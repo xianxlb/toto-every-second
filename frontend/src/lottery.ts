@@ -96,22 +96,14 @@ export function calculateScore(draw: TotoDraw, guess: TotoDraw): number {
   return 0;
 }
 
-// Start epoch: January 5, 2026 00:00:00 UTC
-const START_EPOCH = 1767571200;
-
-// Get the draw number (starts from 1)
-export function getDrawNumber(secondTimestamp: number): number {
-  return Math.max(1, secondTimestamp - START_EPOCH + 1);
-}
-
 // Generate a complete result for a given second
-export function generateResult(secondTimestamp: number): TotoResult {
+export function generateResult(secondTimestamp: number, drawNumber: number): TotoResult {
   const draw = generateTotoDraw(secondTimestamp);
   const guess = generateQuickPick(secondTimestamp);
   const score = calculateScore(draw, guess);
 
   return {
-    id: getDrawNumber(secondTimestamp),
+    id: drawNumber,
     lottery_type: "toto",
     draw,
     guesses: [guess],
