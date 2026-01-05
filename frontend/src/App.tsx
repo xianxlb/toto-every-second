@@ -143,10 +143,6 @@ function App() {
           rel="noopener noreferrer"
           className="github-link"
         >
-          <img
-            src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-            alt="GitHub"
-          />
           View on GitHub
         </a>
         <span className="footer-separator">|</span>
